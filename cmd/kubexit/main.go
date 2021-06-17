@@ -123,6 +123,9 @@ func main() {
 
 		log.G(ctx).Info("Watching graveyard...")
 		err = tombstone.Watch(ctx, graveyard, onDeathOfAny(deathDeps, func() error {
+			// mark process as killed by a death dependency
+			deathDepTerminated = true
+
 			stopGraveyardWatcher()
 			// trigger graceful shutdown
 			// Error & exit if not started.
@@ -132,8 +135,6 @@ func main() {
 				return fmt.Errorf("failed to shutdown: %v", err)
 			}
 
-			// mark process as killed by a death dependency
-			deathDepTerminated = true
 			return nil
 		}))
 		if err != nil {
