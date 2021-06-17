@@ -115,6 +115,7 @@ func main() {
 	child := supervisor.New(ctx, args[0], args[1:]...)
 
 	// watch for death deps early, so they can interrupt waiting for birth deps
+	var deathDepTerminated bool
 	if len(deathDeps) > 0 {
 		ctx, stopGraveyardWatcher := context.WithCancel(ctx)
 		// stop graveyard watchers on exit, if not sooner
@@ -122,6 +123,9 @@ func main() {
 
 		log.G(ctx).Info("Watching graveyard...")
 		err = tombstone.Watch(ctx, graveyard, onDeathOfAny(deathDeps, func() error {
+			// mark process as killed by a death dependency
+			deathDepTerminated = true
+
 			stopGraveyardWatcher()
 			// trigger graceful shutdown
 			// Error & exit if not started.
@@ -130,6 +134,7 @@ func main() {
 			if err != nil {
 				return fmt.Errorf("failed to shutdown: %v", err)
 			}
+
 			return nil
 		}))
 		if err != nil {
@@ -155,6 +160,14 @@ func main() {
 	}
 
 	code := waitForChildExit(ctx, child)
+
+	err = ts.RecordDeath(ctx, code)
+
+	ignoreCodeOnDeathDeps := strings.ToLower(os.Getenv("KUBEXIT_IGNORE_CODE_ON_DEATH_DEPS")) == "true"
+	if deathDepTerminated && ignoreCodeOnDeathDeps && code != 0 {
+		log.G(ctx).WithField("original_exit_code", code).Info("got a non-zero exit code but exitting with code 0")
+		code = 0
+	}
 
 	err = ts.RecordDeath(ctx, code)
 	if err != nil {
